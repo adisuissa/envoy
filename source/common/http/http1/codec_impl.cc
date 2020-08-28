@@ -1060,6 +1060,12 @@ Status ServerConnectionImpl::sendProtocolError(absl::string_view details) {
   // We do this here because we may get a protocol error before we have a logical stream.
   if (!active_request_.has_value()) {
     RETURN_IF_ERROR(onMessageBeginBase());
+    // onMessageBeginBase will initialize active_request_ unless the stream was reset.
+    // This should not happen in practice as the HTTP/1 codec is reset when a
+    // connection is closed, and sendProtocolError won't be called.
+    if (!active_request_.has_value()) {
+      return codecClientError("sendProtocolError on a reset stream should not be called");
+    }
   }
   ASSERT(active_request_.has_value());
 
