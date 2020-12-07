@@ -65,7 +65,28 @@ message DiscoveryRequest {
   google.rpc.Status error_detail = 6;
 }
 
-// [#next-free-field: 7]
+// A response status for a discovery request, that describes the error, if any,
+// that was encountered by the server.
+message DiscoveryResponseStatus {
+  enum ErrorType {
+    // No error has occurred.
+    NONE = 0;
+
+    // No resources configured in the control plane.
+    NO_RESOURCES = 1;
+
+    // No resources matching the request in the control plane.
+    NO_MATCHING_RESOURCES = 2;
+  }
+
+  // The cause of the response.
+  ErrorType type = 1;
+
+  // An optional error message description that can be logged.
+  string description = 2;
+}
+
+// [#next-free-field: 8]
 message DiscoveryResponse {
   option (udpa.annotations.versioning).previous_message_type = "envoy.api.v2.DiscoveryResponse";
 
@@ -108,6 +129,12 @@ message DiscoveryResponse {
   // [#not-implemented-hide:]
   // The control plane instance that sent the response.
   config.core.v3.ControlPlane control_plane = 6;
+
+  // [#not-implemented-hide:]
+  // An optional status response that can be used when no resources are sent to
+  // the client, and will describe the reason. No status implies that the
+  // response is valid and no error was detected.
+  DiscoveryResponseStatus status = 7;
 }
 
 // DeltaDiscoveryRequest and DeltaDiscoveryResponse are used in a new gRPC
@@ -203,7 +230,7 @@ message DeltaDiscoveryRequest {
   google.rpc.Status error_detail = 7;
 }
 
-// [#next-free-field: 7]
+// [#next-free-field: 8]
 message DeltaDiscoveryResponse {
   option (udpa.annotations.versioning).previous_message_type =
       "envoy.api.v2.DeltaDiscoveryResponse";
@@ -228,6 +255,12 @@ message DeltaDiscoveryResponse {
   // The nonce provides a way for DeltaDiscoveryRequests to uniquely
   // reference a DeltaDiscoveryResponse when (N)ACKing. The nonce is required.
   string nonce = 5;
+
+  // [#not-implemented-hide:]
+  // An optional status response that can be used when no resources are sent to
+  // the client, and will describe the reason. No status implies that the
+  // response is valid and no error was detected.
+  DiscoveryResponseStatus status = 7;
 }
 
 // [#next-free-field: 8]
