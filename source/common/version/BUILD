@@ -19,6 +19,14 @@ genrule(
 )
 
 genrule(
+    name = "generate_api_version_number",
+    srcs = ["//:API_VERSION"],
+    outs = ["api_version_number.h"],
+    cmd = """echo "#define API_VERSION_NUMBER \\"$$(cat $<)\\"" >$@""",
+    visibility = ["//visibility:private"],
+)
+
+genrule(
     name = "generate_version_linkstamp",
     outs = ["manual_linkstamp.cc"],
     cmd = select({
@@ -38,6 +46,7 @@ envoy_cc_library(
     name = "version_includes",
     hdrs = [
         "version.h",
+        ":generate_api_version_number",
         ":generate_version_number",
     ],
     deps = [

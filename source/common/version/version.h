@@ -2,6 +2,7 @@
 
 #include <string>
 
+#include "envoy/config/core/v3/api_version.pb.h"
 #include "envoy/config/core/v3/base.pb.h"
 
 #include "common/singleton/const_singleton.h"
@@ -23,7 +24,16 @@ public:
   // Repository information and build type.
   static const std::string& version();
 
+  // Converts a given API version to a string <Major>.<Minor>.<Patch>.
+  static std::string apiVersionToString(const envoy::config::core::v3::ApiVersionNumber& version);
+
   static const envoy::config::core::v3::BuildVersion& buildVersion();
+
+  // Returns the most recent API version that is supported by the client.
+  static const envoy::config::core::v3::ApiVersionNumber& apiVersion();
+
+  // Returns the oldest API version that is supported by the client.
+  static const envoy::config::core::v3::ApiVersionNumber& oldestApiVersion();
 
 private:
   friend class Envoy::VersionInfoTestPeer;
@@ -31,6 +41,9 @@ private:
   static const std::string& buildType();
   static const std::string& sslVersion();
   static envoy::config::core::v3::BuildVersion makeBuildVersion(const char* version);
+  static envoy::config::core::v3::ApiVersionNumber makeApiVersion(const char* version);
+  static envoy::config::core::v3::ApiVersionNumber
+  computeOldestApiVersion(const envoy::config::core::v3::ApiVersionNumber& latest_version);
 };
 
 class BuildVersionMetadata {

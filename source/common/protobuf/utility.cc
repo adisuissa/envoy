@@ -17,6 +17,7 @@
 #include "common/protobuf/visitor.h"
 #include "common/protobuf/well_known.h"
 #include "common/runtime/runtime_features.h"
+#include "common/version/version.h"
 
 #include "absl/strings/match.h"
 #include "udpa/annotations/sensitive.pb.h"
@@ -178,10 +179,14 @@ void tryWithApiBoosting(MessageXformFn f, Protobuf::Message& message) {
 
 // Logs a warning for use of a deprecated field or runtime-overridden use of an
 // otherwise fatal field. Throws a warning on use of a fatal by default field.
+// Also checks the deprecated minor version annotation and compares against the
+// current minor version. If it's more than 2 minor versions apart, the field
+// use is considered fatal.
 void deprecatedFieldHelper(Runtime::Loader* runtime, bool proto_annotated_as_deprecated,
                            bool proto_annotated_as_disallowed, const std::string& feature_name,
                            std::string error, const Protobuf::Message& message,
-                           ProtobufMessage::ValidationVisitor& validation_visitor) {
+                           ProtobufMessage::ValidationVisitor& validation_visitor,
+                           uint32_t proto_annotated_dep_minor_version) {
 // This option is for Envoy builds with --define deprecated_features=disabled
 // The build options CI then verifies that as Envoy developers deprecate fields,
 // that they update canonical configs and unit tests to not use those deprecated
@@ -192,7 +197,21 @@ void deprecatedFieldHelper(Runtime::Loader* runtime, bool proto_annotated_as_dep
   bool warn_only = true;
 #endif
 
+  // The current supported API version is set during compile time.
+  static const uint32_t current_minor_version = VersionInfo::apiVersion().version().minor_number();
+
   bool warn_default = warn_only;
+  // Assuming deprecated fields do not cross major versions, it is safe to
+  // assume that the API minor version can only increase over time, and a
+  // deprecated field won't become non-deprecated.
+  ASSERT(proto_annotated_dep_minor_version <= current_minor_version);
+  if (current_minor_version - proto_annotated_dep_minor_version > 2) {
+    // The code supporting old deprecated fields could have been removed, and
+    // this field cannot be used. The following will throw the warning.
+    validation_visitor.onDeprecatedField("type " + message.GetTypeName() + " " + error,
+                                         false /* warn_only */);
+  }
+
   // Allow runtime to be null both to not crash if this is called before server initialization,
   // and so proto validation works in context where runtime singleton is not set up (e.g.
   // standalone config validation utilities)
@@ -495,7 +514,8 @@ void checkForDeprecatedNonRepeatedEnumValue(
       runtime, true /*deprecated*/,
       enum_value_descriptor->options().GetExtension(envoy::annotations::disallowed_by_default_enum),
       absl::StrCat("envoy.deprecated_features:", enum_value_descriptor->full_name()), error,
-      message, validation_visitor);
+      message, validation_visitor,
+      enum_value_descriptor->options().GetExtension(envoy::annotations::minor_ver_enum));
 }
 
 class UnexpectedFieldProtoVisitor : public ProtobufMessage::ConstProtoVisitor {
@@ -545,7 +565,8 @@ public:
       deprecatedFieldHelper(runtime_, true /*deprecated*/,
                             field.options().GetExtension(envoy::annotations::disallowed_by_default),
                             absl::StrCat("envoy.deprecated_features:", field.full_name()), warning,
-                            message, validation_visitor_);
+                            message, validation_visitor_,
+                            field.options().GetExtension(envoy::annotations::minor_ver));
     }
     return nullptr;
   }

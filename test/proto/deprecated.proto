@@ -9,6 +9,10 @@ message Base {
   string is_deprecated = 2 [deprecated = true];
   string is_deprecated_fatal = 3
       [deprecated = true, (envoy.annotations.disallowed_by_default) = true];
+  string is_deprecated_minor_recent = 9
+      [deprecated = true, (envoy.annotations.minor_ver) = 2];
+  string is_deprecated_minor_old = 10
+      [deprecated = true, (envoy.annotations.minor_ver) = 0];
   message InnerMessage {
     string inner_not_deprecated = 1;
     string inner_deprecated = 2 [deprecated = true];
@@ -27,6 +31,8 @@ message Base {
     NOT_DEPRECATED = 1;
     DEPRECATED_NOT_DEFAULT = 2 [deprecated = true];
     DEPRECATED_FATAL = 3 [deprecated = true, (envoy.annotations.disallowed_by_default_enum) = true];
+    DEPRECATED_MINOR_VER_RECENT = 4 [deprecated = true, (envoy.annotations.minor_ver_enum) = 2];
+    DEPRECATED_MINOR_VER_OLD = 5 [deprecated = true, (envoy.annotations.minor_ver_enum) = 0];
   }
   message InnerMessageWithDeprecationEnum {
     DeprecationEnum deprecated_enum = 1;
