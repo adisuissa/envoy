@@ -7,6 +7,7 @@
 
 #include "common/config/protobuf_link_hacks.h"
 #include "common/config/version_converter.h"
+#include "common/config/xds_resource.h"
 #include "common/protobuf/protobuf.h"
 #include "common/protobuf/utility.h"
 #include "common/version/version.h"
@@ -24,6 +25,19 @@
 using testing::AssertionResult;
 
 namespace Envoy {
+
+namespace {
+  xds::core::v3::ResourceName createXdsTpResourceName(const std::string& authority, const std::string& type_url, const std::string& resource, const absl::flat_hash_map<std::string, std::string> context_params) {
+    xds::core::v3::ResourceName resource_name;
+    resource_name.set_authority(authority);
+    resource_name.set_resource_type(type_url);
+    resource_name.set_id(resource);
+    auto* params = resource_name.mutable_context()->mutable_params();
+    params->insert(context_params.cbegin(), context_params.cend());
+    return resource_name;
+    //XdsResourceIdentifier::encodeUrn(resourceName);
+  }
+}
 
 INSTANTIATE_TEST_SUITE_P(IpVersionsClientTypeDelta, AdsIntegration2Test,
                          DELTA_SOTW_GRPC_CLIENT_INTEGRATION_PARAMS);
@@ -60,9 +74,12 @@ TEST_P(AdsIntegration2Test, NodeMessageV3Only) {
   xds_stream_->finishGrpcStream(Grpc::Status::Ok);
 }
 
-/*
+
 TEST_P(AdsIntegration2Test, TestMinorVersionRange) {
   initialize();
+  const std::string authority = "foo.com";
+  
+  auto expected_clusters_resource = createXdsTpResourceName("");
   EXPECT_TRUE(compareDiscoveryRequest(Config::TypeUrl::get().Cluster, "", {}, {}, {}, true));
   envoy::service::discovery::v3::DiscoveryResponseStatus response_status;
   response_status.set_type(envoy::service::discovery::v3::DiscoveryResponseStatus::NO_RESOURCES);
@@ -110,7 +127,7 @@ TEST_P(AdsIntegration2Test, TestMinorVersionRange) {
 // resource version is in range.
 // - If the client doesn't send range of supported versions (major version is a
 // must), the server can send any minor version that it has.
-*/
+
 
 #if 0
 // Basic CDS/EDS update that warms and makes active a single cluster.
