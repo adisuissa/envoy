@@ -515,8 +515,7 @@ void checkForDeprecatedNonRepeatedEnumValue(
       runtime, true /*deprecated*/,
       enum_value_descriptor->options().GetExtension(envoy::annotations::disallowed_by_default_enum),
       absl::StrCat("envoy.deprecated_features:", enum_value_descriptor->full_name()), error,
-      message, validation_visitor,
-      0);
+      message, validation_visitor, 0);
 }
 
 class UnexpectedFieldProtoVisitor : public ProtobufMessage::ConstProtoVisitor {
