@@ -7,6 +7,8 @@
 #include "common/common/token_bucket_impl.h"
 #include "common/config/utility.h"
 #include "common/config/version_converter.h"
+#include "common/config/xds_resource.h"
+#include "common/config/xds_resource_utility.h"
 #include "common/memory/utils.h"
 #include "common/protobuf/protobuf.h"
 #include "common/protobuf/utility.h"
@@ -227,6 +229,32 @@ void NewGrpcMuxImpl::trySendDiscoveryRequests() {
     } else {
       request = sub->second->sub_state_.getNextRequestAckless();
     }
+
+    if (true) { // TODO(adisuissa): change this to runtime override flag.
+      auto* resource_names_subscribe = request.mutable_resource_names_subscribe();
+      auto* resource_names_unsubscribe = request.mutable_resource_names_unsubscribe();
+      // Add the collection glob if no resources names are subscribed/unsubscribed to.
+      if (resource_names_subscribe->empty() && resource_names_unsubscribe->empty()) {
+        resource_names_subscribe->Add("*");
+      }
+
+      // Convert resource names to xdstp format and add the minor version.
+      for (auto& resource_name : *resource_names_subscribe) {
+        resource_name =
+            XdsResourceIdentifier::encodeUrn(XdsResourceUtility::createXdsTpResourceName(
+                "foo_authority",
+                std::string(TypeUtil::typeUrlToDescriptorFullName(next_request_type_url)),
+                resource_name));
+      }
+      for (auto& resource_name : *resource_names_unsubscribe) {
+        resource_name =
+            XdsResourceIdentifier::encodeUrn(XdsResourceUtility::createXdsTpResourceName(
+                "foo_authority",
+                std::string(TypeUtil::typeUrlToDescriptorFullName(next_request_type_url)),
+                resource_name));
+      }
+    }
+
     VersionConverter::prepareMessageForGrpcWire(request, transport_api_version_);
     grpc_stream_.sendMessage(request);
   }

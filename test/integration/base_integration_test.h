@@ -146,7 +146,8 @@ public:
       const std::vector<std::string>& expected_resource_names_added,
       const std::vector<std::string>& expected_resource_names_removed, bool expect_node = false,
       const Protobuf::int32 expected_error_code = Grpc::Status::WellKnownGrpcStatus::Ok,
-      const std::string& expected_error_message = "");
+      const std::string& expected_error_message = "",
+      const std::string& authority = "foo_authority");
   template <class T>
   void sendDiscoveryResponse(
       const std::string& type_url, const std::vector<T>& state_of_the_world,

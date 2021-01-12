@@ -755,6 +755,8 @@ envoy_cc_test_library(
         ":utility_lib",
         "//source/common/config:api_version_lib",
         "//source/common/config:version_converter_lib",
+        "//source/common/config:xds_resource_lib",
+        "//source/common/config:xds_resource_utility_lib",
         "//source/extensions/transport_sockets/tls:context_config_lib",
         "//source/extensions/transport_sockets/tls:context_lib",
         "//source/extensions/transport_sockets/tls:ssl_socket_lib",

@@ -73,13 +73,10 @@ message DiscoveryResponseStatus {
 
   enum ErrorType {
     // No error has occurred.
-    NONE = 0;
-
-    // No resources configured in the control plane.
-    NO_RESOURCES = 1;
+    OK = 0;
 
     // No resources matching the request in the control plane.
-    NO_MATCHING_RESOURCES = 2;
+    NO_MATCHING_RESOURCES = 1;
   }
 
   // The cause of the response.

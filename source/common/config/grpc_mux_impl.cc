@@ -5,6 +5,8 @@
 #include "common/config/decoded_resource_impl.h"
 #include "common/config/utility.h"
 #include "common/config/version_converter.h"
+#include "common/config/xds_resource.h"
+#include "common/config/xds_resource_utility.h"
 #include "common/memory/utils.h"
 #include "common/protobuf/protobuf.h"
 
@@ -56,6 +58,22 @@ void GrpcMuxImpl::sendDiscoveryRequest(const std::string& type_url) {
       request.clear_node();
     }
   }
+
+  if (true) { // TODO(adisuissa): change this to runtime override flag.
+    auto* resource_names = request.mutable_resource_names();
+    // Add the collection glob if no resources names are given.
+    if (resource_names->empty()) {
+      resource_names->Add("*");
+    }
+
+    // Convert resource names to xdstp format and add the minor version.
+    for (auto& resource_name : *resource_names) {
+      resource_name = XdsResourceIdentifier::encodeUrn(XdsResourceUtility::createXdsTpResourceName(
+          "foo_authority", std::string(TypeUtil::typeUrlToDescriptorFullName(type_url)),
+          resource_name));
+    }
+  }
+
   VersionConverter::prepareMessageForGrpcWire(request, transport_api_version_);
   ENVOY_LOG(trace, "Sending DiscoveryRequest for {}: {}", type_url, request.DebugString());
   grpc_stream_.sendMessage(request);

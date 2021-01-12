@@ -198,7 +198,8 @@ void deprecatedFieldHelper(Runtime::Loader* runtime, bool proto_annotated_as_dep
 #endif
 
   // The current supported API version is set during compile time.
-  static const uint32_t current_minor_version = ApiVersionInfo::apiVersion().version().minor_number();
+  static const uint32_t current_minor_version =
+      ApiVersionInfo::apiVersion().version().minor_number();
 
   bool warn_default = warn_only;
   // Assuming deprecated fields do not cross major versions, it is safe to
@@ -515,7 +516,7 @@ void checkForDeprecatedNonRepeatedEnumValue(
       enum_value_descriptor->options().GetExtension(envoy::annotations::disallowed_by_default_enum),
       absl::StrCat("envoy.deprecated_features:", enum_value_descriptor->full_name()), error,
       message, validation_visitor,
-      /*enum_value_descriptor->options().GetExtension(envoy::annotations::minor_ver_enum)*/0);
+      0);
 }
 
 class UnexpectedFieldProtoVisitor : public ProtobufMessage::ConstProtoVisitor {
@@ -566,7 +567,7 @@ public:
                             field.options().GetExtension(envoy::annotations::disallowed_by_default),
                             absl::StrCat("envoy.deprecated_features:", field.full_name()), warning,
                             message, validation_visitor_,
-                            /*field.options().GetExtension(envoy::annotations::minor_ver)*/0);
+                            /*field.options().GetExtension(envoy::annotations::minor_ver)*/ 0);
     }
     return nullptr;
   }

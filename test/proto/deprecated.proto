@@ -9,10 +9,8 @@ message Base {
   string is_deprecated = 2 [deprecated = true];
   string is_deprecated_fatal = 3
       [deprecated = true, (envoy.annotations.disallowed_by_default) = true];
-  string is_deprecated_minor_recent = 9
-      [deprecated = true, (envoy.annotations.minor_ver) = 2];
-  string is_deprecated_minor_old = 10
-      [deprecated = true, (envoy.annotations.minor_ver) = 0];
+  string is_deprecated_minor_recent = 9 [deprecated = true, (envoy.annotations.minor_ver) = 2];
+  string is_deprecated_minor_old = 10 [deprecated = true, (envoy.annotations.minor_ver) = 0];
   message InnerMessage {
     string inner_not_deprecated = 1;
     string inner_deprecated = 2 [deprecated = true];

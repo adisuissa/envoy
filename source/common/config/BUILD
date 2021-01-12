@@ -153,6 +153,8 @@ envoy_cc_library(
         ":grpc_stream_lib",
         ":ttl_lib",
         ":utility_lib",
+        ":xds_resource_lib",
+        ":xds_resource_utility_lib",
         "//include/envoy/config:grpc_mux_interface",
         "//include/envoy/config:subscription_interface",
         "//include/envoy/upstream:cluster_manager_interface",
@@ -189,6 +191,8 @@ envoy_cc_library(
         ":pausable_ack_queue_lib",
         ":version_converter_lib",
         ":watch_map_lib",
+        ":xds_resource_lib",
+        ":xds_resource_utility_lib",
         "//include/envoy/event:dispatcher_interface",
         "//include/envoy/grpc:async_client_interface",
         "//source/common/memory:utils_lib",
@@ -362,6 +366,16 @@ envoy_cc_library(
     hdrs = ["xds_resource.h"],
     deps = [
         "//source/common/http:utility_lib",
+        "@com_github_cncf_udpa//xds/core/v3:pkg_cc_proto",
+    ],
+)
+
+envoy_cc_library(
+    name = "xds_resource_utility_lib",
+    srcs = ["xds_resource_utility.cc"],
+    hdrs = ["xds_resource_utility.h"],
+    deps = [
+        "//source/common/version:api_version_lib",
         "@com_github_cncf_udpa//xds/core/v3:pkg_cc_proto",
     ],
 )

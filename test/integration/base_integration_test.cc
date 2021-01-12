@@ -18,6 +18,8 @@
 #include "common/common/assert.h"
 #include "common/common/fmt.h"
 #include "common/config/api_version.h"
+#include "common/config/xds_resource.h"
+#include "common/config/xds_resource_utility.h"
 #include "common/event/libevent.h"
 #include "common/network/utility.h"
 
@@ -439,21 +441,68 @@ void BaseIntegrationTest::cleanUpXdsConnection() {
   xds_connection_.reset();
 }
 
+namespace {
+std::vector<std::string>
+addMinorVersionToResourceNames(const std::vector<std::string>& resource_names,
+                               const std::string& expected_type_url, const std::string& authority,
+                               bool convert_empty_to_glob = true) {
+  std::vector<std::string> resource_names_versioned;
+  if (resource_names.empty() && convert_empty_to_glob) {
+    resource_names_versioned.emplace_back(Config::XdsResourceIdentifier::encodeUrn(
+        Config::XdsResourceUtility::createXdsTpResourceName(
+            authority, std::string(TypeUtil::typeUrlToDescriptorFullName(expected_type_url)),
+            "*")));
+  } else {
+    for (const auto& resource_name : resource_names) {
+      resource_names_versioned.emplace_back(Config::XdsResourceIdentifier::encodeUrn(
+          Config::XdsResourceUtility::createXdsTpResourceName(
+              authority, std::string(TypeUtil::typeUrlToDescriptorFullName(expected_type_url)),
+              resource_name)));
+    }
+  }
+  return resource_names_versioned;
+}
+} // namespace
+
 AssertionResult BaseIntegrationTest::compareDiscoveryRequest(
     const std::string& expected_type_url, const std::string& expected_version,
     const std::vector<std::string>& expected_resource_names,
     const std::vector<std::string>& expected_resource_names_added,
     const std::vector<std::string>& expected_resource_names_removed, bool expect_node,
-    const Protobuf::int32 expected_error_code, const std::string& expected_error_substring) {
+    const Protobuf::int32 expected_error_code, const std::string& expected_error_substring,
+    const std::string& authority) {
+  // Add minor version to the resource names.
+  const std::vector<std::string> expected_resource_names_versioned =
+      addMinorVersionToResourceNames(expected_resource_names, expected_type_url, authority);
+  const std::vector<std::string> expected_resource_names_added_versioned =
+      addMinorVersionToResourceNames(expected_resource_names_added, expected_type_url, authority);
+  const std::vector<std::string> expected_resource_names_removed_versioned =
+      addMinorVersionToResourceNames(expected_resource_names_removed, expected_type_url, authority,
+                                     false);
+
   if (sotw_or_delta_ == Grpc::SotwOrDelta::Sotw) {
-    return compareSotwDiscoveryRequest(expected_type_url, expected_version, expected_resource_names,
-                                       expect_node, expected_error_code, expected_error_substring);
+    return compareSotwDiscoveryRequest(expected_type_url, expected_version,
+                                       expected_resource_names_versioned, expect_node,
+                                       expected_error_code, expected_error_substring);
   } else {
-    return compareDeltaDiscoveryRequest(expected_type_url, expected_resource_names_added,
-                                        expected_resource_names_removed, expected_error_code,
-                                        expected_error_substring);
+    return compareDeltaDiscoveryRequest(expected_type_url, expected_resource_names_added_versioned,
+                                        expected_resource_names_removed_versioned,
+                                        expected_error_code, expected_error_substring);
   }
 }
+
+namespace {
+
+// Returns the given resource name in a canonical form.
+std::string canonicalXdsResourceName(const std::string& name) {
+  // Decode and then encode (with sorted context params) a resource name.
+  Config::XdsResourceIdentifier::EncodeOptions encode_options;
+  encode_options.sort_context_params_ = true;
+  return Config::XdsResourceIdentifier::encodeUrn(Config::XdsResourceIdentifier::decodeUrn(name),
+                                                  encode_options);
+}
+
+} // namespace
 
 AssertionResult compareSets(const std::set<std::string>& set1, const std::set<std::string>& set2,
                             absl::string_view name) {
@@ -498,11 +547,18 @@ AssertionResult BaseIntegrationTest::compareSotwDiscoveryRequest(
   }
   EXPECT_TRUE(
       IsSubstring("", "", expected_error_substring, discovery_request.error_detail().message()));
-  const std::set<std::string> resource_names_in_request(discovery_request.resource_names().cbegin(),
-                                                        discovery_request.resource_names().cend());
-  if (auto resource_name_result = compareSets(
-          std::set<std::string>(expected_resource_names.cbegin(), expected_resource_names.cend()),
-          resource_names_in_request, "Sotw resource names")) {
+  std::set<std::string> resource_names_in_request;
+  std::transform(discovery_request.resource_names().cbegin(),
+                 discovery_request.resource_names().cend(),
+                 std::inserter(resource_names_in_request, resource_names_in_request.end()),
+                 canonicalXdsResourceName);
+  std::set<std::string> expected_resource_names_in_request;
+  std::transform(
+      expected_resource_names.begin(), expected_resource_names.end(),
+      std::inserter(expected_resource_names_in_request, expected_resource_names_in_request.end()),
+      canonicalXdsResourceName);
+  if (auto resource_name_result = compareSets(expected_resource_names_in_request,
+                                              resource_names_in_request, "Sotw resource names")) {
     return resource_name_result;
   }
   if (expected_version != discovery_request.version_info()) {
@@ -549,14 +605,21 @@ AssertionResult BaseIntegrationTest::compareDeltaDiscoveryRequest(
                                              request.type_url(), expected_type_url);
   }
   // Sort to ignore ordering.
-  std::set<std::string> expected_sub{expected_resource_subscriptions.begin(),
-                                     expected_resource_subscriptions.end()};
-  std::set<std::string> expected_unsub{expected_resource_unsubscriptions.begin(),
-                                       expected_resource_unsubscriptions.end()};
-  std::set<std::string> actual_sub{request.resource_names_subscribe().begin(),
-                                   request.resource_names_subscribe().end()};
-  std::set<std::string> actual_unsub{request.resource_names_unsubscribe().begin(),
-                                     request.resource_names_unsubscribe().end()};
+  std::set<std::string> expected_sub;
+  std::transform(expected_resource_subscriptions.cbegin(), expected_resource_subscriptions.cend(),
+                 std::inserter(expected_sub, expected_sub.begin()), canonicalXdsResourceName);
+  std::set<std::string> expected_unsub;
+  std::transform(expected_resource_unsubscriptions.cbegin(),
+                 expected_resource_unsubscriptions.cend(),
+                 std::inserter(expected_unsub, expected_unsub.begin()), canonicalXdsResourceName);
+  std::set<std::string> actual_sub;
+  std::transform(request.resource_names_subscribe().cbegin(),
+                 request.resource_names_subscribe().cend(),
+                 std::inserter(actual_sub, actual_sub.begin()), canonicalXdsResourceName);
+  std::set<std::string> actual_unsub;
+  std::transform(request.resource_names_unsubscribe().cbegin(),
+                 request.resource_names_unsubscribe().cend(),
+                 std::inserter(actual_unsub, actual_unsub.begin()), canonicalXdsResourceName);
   auto sub_result = compareSets(expected_sub, actual_sub, "expected_resource_subscriptions");
   if (!sub_result) {
     return sub_result;
