@@ -112,6 +112,35 @@ TEST_P(AdsIntegration2Test, TestIncorrectMinorVersion) {
   // test_server_->waitForCounterGe("cluster_manager.cds.update_rejected", 1);
 }
 
+TEST_P(AdsIntegration2Test, TestCorrectThenIncorrectMinorVersion) {
+  initialize();
+
+  EXPECT_TRUE(compareDiscoveryRequest(Config::TypeUrl::get().Cluster, "", {}, {}, {}, true));
+  envoy::service::discovery::v3::DiscoveryResponseStatus response_status;
+  response_status.set_type(envoy::service::discovery::v3::DiscoveryResponseStatus::OK);
+  sendDiscoveryResponse<envoy::config::cluster::v3::Cluster>(
+      Config::TypeUrl::get().Cluster, {buildCluster("cluster_0")}, {buildCluster("cluster_0")}, {},
+      "1", false, response_status);
+
+  EXPECT_TRUE(compareDiscoveryRequest(Config::TypeUrl::get().ClusterLoadAssignment, "",
+                                      {"cluster_0"}, {"cluster_0"}, {}));
+  sendDiscoveryResponse<envoy::config::endpoint::v3::ClusterLoadAssignment>(
+      Config::TypeUrl::get().ClusterLoadAssignment, {buildClusterLoadAssignment("cluster_0")},
+      {buildClusterLoadAssignment("cluster_0")}, {}, "1");
+
+  EXPECT_TRUE(compareDiscoveryRequest(Config::TypeUrl::get().Cluster, "1", {}, {}, {}));
+  EXPECT_TRUE(compareDiscoveryRequest(Config::TypeUrl::get().Listener, "", {}, {}, {}));
+
+  // Reply that no matching resources were found.
+  response_status.set_type(
+      envoy::service::discovery::v3::DiscoveryResponseStatus::NO_MATCHING_RESOURCES);
+  sendDiscoveryResponse<envoy::config::listener::v3::Listener>(
+      Config::TypeUrl::get().Listener, {buildListener("listener_0", "route_config_0")},
+      {buildListener("listener_0", "route_config_0")}, {}, "1", false, response_status);
+
+  // test_server_->waitForCounterGe("listener_manager.lds.update_rejected", 1);
+}
+
 // Send without minor version
 // Send with minor version range that is too old or too new
 // Send with an overlapping version range
