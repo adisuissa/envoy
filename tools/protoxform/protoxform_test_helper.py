@@ -57,7 +57,8 @@ def ProtoPrint(src, dst):
   print('ProtoPrint %s -> %s' % (src, dst))
   subprocess.check_call([
       'bazel-bin/tools/protoxform/protoprint', src, dst,
-      './bazel-bin/tools/protoxform/protoprint.runfiles/envoy/tools/type_whisperer/api_type_db.pb_text'
+      './bazel-bin/tools/protoxform/protoprint.runfiles/envoy/tools/type_whisperer/api_type_db.pb_text',
+      './tools/testdata/protoxform/TEST_API_VERSION'
   ])
 
 

@@ -21,6 +21,7 @@ from tools.api_proto_plugin import annotations
 from tools.api_proto_plugin import plugin
 from tools.api_proto_plugin import traverse
 from tools.api_proto_plugin import visitor
+import tools.api_versioning.utils as api_version_utils
 from tools.protoxform import options as protoxform_options
 from tools.protoxform import utils
 from tools.type_whisperer import type_whisperer
@@ -33,7 +34,7 @@ from google.protobuf import text_format
 # this also serves as allowlist of extended options.
 from google.api import annotations_pb2 as _
 from validate import validate_pb2 as _
-from envoy.annotations import deprecation_pb2 as _
+from envoy.annotations import deprecation_pb2
 from envoy.annotations import resource_pb2
 from udpa.annotations import migrate_pb2
 from udpa.annotations import security_pb2 as _
@@ -560,11 +561,40 @@ def FormatReserved(enum_or_msg_proto):
   return reserved_fields
 
 
+def ValidateDeprecationVersion(version: str):
+  """Validates that a given version string is of format X.Y, where X and Y are
+  integers, X>0, and Y>=0.
+
+  Args:
+    version: a minor version deprecation annotation value (see api/envoy/annotations/deprecation.proto)
+
+  Returns:
+    True iff the given string represents a valid X.Y version.
+  """
+  if version.count('.') != 1:
+    return False
+  # Validate major and minor parts.
+  try:
+    major, minor = [int(x) for x in version.split('.')]
+    if major <= 0:
+      return False
+    if minor < 0:
+      return False
+  except:
+    return False
+  return True
+
+
 class ProtoFormatVisitor(visitor.Visitor):
   """Visitor to generate a proto representation from a FileDescriptor proto.
 
   See visitor.Visitor for visitor method docs comments.
   """
+
+  def __init__(self, api_version_file_path):
+    current_api_version = api_version_utils.GetApiVersion(api_version_file_path)
+    self._deprecated_annotation_version_value = '{}.{}'.format(current_api_version.major,
+                                                               current_api_version.minor)
 
   def VisitService(self, service_proto, type_context):
     leading_comment, trailing_comment = FormatTypeContextComments(type_context)
@@ -578,6 +608,19 @@ class ProtoFormatVisitor(visitor.Visitor):
   def VisitEnum(self, enum_proto, type_context):
     if protoxform_options.HasHideOption(enum_proto.options):
       return ''
+    # Verify that deprecated enum values have valid minor version annotations.
+    for v in enum_proto.value:
+      if v.options.deprecated and not v.name == 'DEPRECATED_AND_UNAVAILABLE_DO_NOT_USE':
+        if v.options.HasExtension(deprecation_pb2.deprecated_at_minor_version_enum):
+          if not ValidateDeprecationVersion(
+              v.options.Extensions[deprecation_pb2.deprecated_at_minor_version_enum]):
+            raise ProtoPrintError(
+                'Error while parsing "deprecated_at_minor_version_enum" annotation value for enum value %s.'
+                % v.name)
+        else:
+          v.options.Extensions[
+              deprecation_pb2.
+              deprecated_at_minor_version_enum] = self._deprecated_annotation_version_value
     leading_comment, trailing_comment = FormatTypeContextComments(type_context)
     formatted_options = FormatOptions(enum_proto.options)
     reserved_fields = FormatReserved(enum_proto)
@@ -622,6 +665,18 @@ class ProtoFormatVisitor(visitor.Visitor):
         fields += '%soneof %s {\n%s%s' % (oneof_leading_comment, oneof_proto.name,
                                           oneof_trailing_comment, FormatOptions(
                                               oneof_proto.options))
+      # Verify that deprecated fields have a minor version annotation.
+      if field.options.deprecated:
+        if field.options.HasExtension(deprecation_pb2.deprecated_at_minor_version):
+          if not ValidateDeprecationVersion(
+              field.options.Extensions[deprecation_pb2.deprecated_at_minor_version]):
+            raise ProtoPrintError(
+                'Error while parsing "deprecated_at_minor_version" annotation value for field %s.' %
+                field.name)
+        else:
+          field.options.Extensions[
+              deprecation_pb2.
+              deprecated_at_minor_version] = self._deprecated_annotation_version_value
       fields += FormatBlock(FormatField(type_context.ExtendField(index, field.name), field))
     if oneof_index is not None:
       fields += '}\n\n'
@@ -647,4 +702,5 @@ if __name__ == '__main__':
   text_format.Merge(input_text, file_proto)
   dst_path = pathlib.Path(sys.argv[2])
   utils.LoadTypeDb(sys.argv[3])
-  dst_path.write_bytes(traverse.TraverseFile(file_proto, ProtoFormatVisitor()))
+  api_version_file_path = pathlib.Path(sys.argv[4])
+  dst_path.write_bytes(traverse.TraverseFile(file_proto, ProtoFormatVisitor(api_version_file_path)))

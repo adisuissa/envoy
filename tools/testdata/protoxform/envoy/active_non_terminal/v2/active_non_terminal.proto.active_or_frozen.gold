@@ -10,7 +10,7 @@ option java_multiple_files = true;
 option (udpa.annotations.file_status).package_version_status = FROZEN;
 
 message ActiveNonTerminal {
-  int32 foo = 1 [deprecated = true];
+  int32 foo = 1 [deprecated = true, (envoy.annotations.deprecated_at_minor_version) = "3.7"];
 
   int32 bar = 2;
 }
