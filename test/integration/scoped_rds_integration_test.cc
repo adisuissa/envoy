@@ -8,6 +8,7 @@
 
 #include "common/config/api_version.h"
 #include "common/config/version_converter.h"
+#include "common/version/api_version.h"
 
 #include "test/common/grpc/grpc_client_integration.h"
 #include "test/integration/http_integration.h"
@@ -98,7 +99,11 @@ fragments:
           srds_config_source->set_resource_api_version(envoy::config::core::v3::ApiVersion::V3);
           if (!srds_resources_locator_.empty()) {
             scoped_routes->mutable_scoped_rds()->set_srds_resources_locator(
-                srds_resources_locator_);
+                absl::StrCat(srds_resources_locator_, "?",
+                             TestUtility::contextParamsString(
+                                 {{"xds.api.minor_version",
+                                   absl::StrCat("[", ApiVersionInfo::oldestApiVersion().minor, ",",
+                                                ApiVersionInfo::apiVersion().minor, "]")}})));
           }
 
           // Set Transport api version for scoped_rds.
@@ -475,13 +480,17 @@ TEST_P(ScopedRdsIntegrationTest, XdsTpCollection) {
   if (!isDelta()) {
     return;
   }
-  const std::string scope_route1 = R"EOF(
-name: xdstp://some/envoy.config.route.v3.ScopedRouteConfiguration/namespace/foo_scope1
+  const std::string scope_route1 = fmt::format(
+      R"EOF(
+name: xdstp://some/envoy.config.route.v3.ScopedRouteConfiguration/namespace/foo_scope1?{}
 route_configuration_name: foo_route1
 key:
   fragments:
     - string_key: foo
-)EOF";
+)EOF",
+      TestUtility::contextParamsString(
+          {{"xds.api.minor_version", absl::StrCat("[", ApiVersionInfo::oldestApiVersion().minor,
+                                                  ",", ApiVersionInfo::apiVersion().minor, "]")}}));
   const std::string route_config_tmpl = R"EOF(
       name: {}
       virtual_hosts:

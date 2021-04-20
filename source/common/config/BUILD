@@ -46,12 +46,14 @@ envoy_cc_library(
 
 envoy_cc_library(
     name = "context_provider_lib",
+    srcs = ["context_provider_impl.cc"],
     hdrs = ["context_provider_impl.h"],
     deps = [
         ":xds_context_params_lib",
         "//include/envoy/config:context_provider_interface",
         "//source/common/common:callback_impl_lib",
         "//source/common/common:thread_lib",
+        "//source/common/version:api_version_lib",
     ],
 )
 

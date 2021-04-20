@@ -10,6 +10,7 @@
 #include "common/config/version_converter.h"
 #include "common/protobuf/protobuf.h"
 #include "common/protobuf/utility.h"
+#include "common/version/api_version.h"
 #include "common/version/version.h"
 
 #include "test/common/grpc/grpc_client_integration.h"
@@ -1246,6 +1247,11 @@ TEST_P(AdsIntegrationTest, NodeMessage) {
   envoy::config::core::v3::BuildVersion build_version_msg;
   Config::VersionConverter::upgrade(node->user_agent_build_version(), build_version_msg);
   EXPECT_THAT(build_version_msg, ProtoEq(VersionInfo::buildVersion()));
+  // Compare supported API range.
+  EXPECT_THAT(ApiVersionInfo::convertToSemanticVersion(ApiVersionInfo::apiVersion()),
+              ProtoEq(node->user_agent_latest_api_version()));
+  EXPECT_THAT(ApiVersionInfo::convertToSemanticVersion(ApiVersionInfo::oldestApiVersion()),
+              ProtoEq(node->user_agent_oldest_api_version()));
   EXPECT_GE(node->extensions().size(), 0);
   EXPECT_EQ(0, node->client_features().size());
   xds_stream_->finishGrpcStream(Grpc::Status::Ok);
@@ -1548,6 +1554,12 @@ public:
     });
     AdsIntegrationTest::initialize();
   }
+
+  const absl::flat_hash_map<std::string, std::string> DEFAULT_XDSTP_CONTEXT_PARAMS{
+      {"xds.node.id", "node_name"},
+      {"xds.node.cluster", "cluster_name"},
+      {"xds.api.minor_version", absl::StrCat("[", ApiVersionInfo::oldestApiVersion().minor, ",",
+                                             ApiVersionInfo::apiVersion().minor, "]")}};
 };
 
 INSTANTIATE_TEST_SUITE_P(
@@ -1561,12 +1573,14 @@ INSTANTIATE_TEST_SUITE_P(
 TEST_P(XdsTpAdsIntegrationTest, Basic) {
   initialize();
   // Basic CDS/EDS xDS initialization (CDS via xdstp:// glob collection).
-  EXPECT_TRUE(compareDiscoveryRequest(Config::TypeUrl::get().Cluster, "", {},
-                                      {"xdstp://test/envoy.config.cluster.v3.Cluster/foo-cluster/"
-                                       "*?xds.node.cluster=cluster_name&xds.node.id=node_name"},
-                                      {}, true));
-  const std::string cluster_name = "xdstp://test/envoy.config.cluster.v3.Cluster/foo-cluster/"
-                                   "baz?xds.node.cluster=cluster_name&xds.node.id=node_name";
+  EXPECT_TRUE(
+      compareDiscoveryRequest(Config::TypeUrl::get().Cluster, "", {},
+                              {"xdstp://test/envoy.config.cluster.v3.Cluster/foo-cluster/"
+                               "*?" +
+                               TestUtility::contextParamsString(DEFAULT_XDSTP_CONTEXT_PARAMS)},
+                              {}, true));
+  const std::string cluster_name = "xdstp://test/envoy.config.cluster.v3.Cluster/foo-cluster/baz?" +
+                                   TestUtility::contextParamsString(DEFAULT_XDSTP_CONTEXT_PARAMS);
   auto cluster_resource = buildCluster(cluster_name);
   const std::string endpoints_name =
       "xdstp://test/envoy.config.endpoint.v3.ClusterLoadAssignment/foo-cluster/baz";
@@ -1586,25 +1600,31 @@ TEST_P(XdsTpAdsIntegrationTest, Basic) {
   EXPECT_TRUE(
       compareDiscoveryRequest(Config::TypeUrl::get().Listener, "", {},
                               {"xdstp://test/envoy.config.listener.v3.Listener/foo-listener/"
-                               "*?xds.node.cluster=cluster_name&xds.node.id=node_name"},
+                               "*?" +
+                               TestUtility::contextParamsString(DEFAULT_XDSTP_CONTEXT_PARAMS)},
                               {}));
   const std::string route_name_0 =
       "xdstp://test/envoy.config.route.v3.RouteConfiguration/route_config_0";
   const std::string route_name_1 =
       "xdstp://test/envoy.config.route.v3.RouteConfiguration/route_config_1";
+  absl::flat_hash_map<std::string, std::string> non_matching_params(DEFAULT_XDSTP_CONTEXT_PARAMS);
+  non_matching_params["xds.node.id"] = "other_name";
   sendDiscoveryResponse<envoy::config::listener::v3::Listener>(
       Config::TypeUrl::get().Listener, {},
       {
           buildListener("xdstp://test/envoy.config.listener.v3.Listener/foo-listener/"
-                        "bar?xds.node.cluster=cluster_name&xds.node.id=node_name",
+                        "bar?" +
+                            TestUtility::contextParamsString(DEFAULT_XDSTP_CONTEXT_PARAMS),
                         route_name_0),
           // Ignore resource in impostor namespace.
           buildListener("xdstp://test/envoy.config.listener.v3.Listener/impostor/"
-                        "bar?xds.node.cluster=cluster_name&xds.node.id=node_name",
+                        "bar?" +
+                            TestUtility::contextParamsString(DEFAULT_XDSTP_CONTEXT_PARAMS),
                         route_name_0),
           // Ignore non-matching context params.
           buildListener("xdstp://test/envoy.config.listener.v3.Listener/foo-listener/"
-                        "baz?xds.node.cluster=cluster_name&xds.node.id=other_name",
+                        "baz?" +
+                            TestUtility::contextParamsString(non_matching_params),
                         route_name_0),
       },
       {}, "1");
@@ -1627,7 +1647,8 @@ TEST_P(XdsTpAdsIntegrationTest, Basic) {
   sendDiscoveryResponse<envoy::config::listener::v3::Listener>(
       Config::TypeUrl::get().Listener, {},
       {buildListener("xdstp://test/envoy.config.listener.v3.Listener/foo-listener/"
-                     "baz?xds.node.cluster=cluster_name&xds.node.id=node_name",
+                     "baz?" +
+                         TestUtility::contextParamsString(DEFAULT_XDSTP_CONTEXT_PARAMS),
                      route_name_1)},
       {}, "2");
   EXPECT_TRUE(compareDiscoveryRequest(Config::TypeUrl::get().RouteConfiguration, "1", {},
@@ -1645,7 +1666,8 @@ TEST_P(XdsTpAdsIntegrationTest, Basic) {
   sendDiscoveryResponse<envoy::config::listener::v3::Listener>(
       Config::TypeUrl::get().Listener, {},
       {buildListener("xdstp://test/envoy.config.listener.v3.Listener/foo-listener/"
-                     "bar?xds.node.cluster=cluster_name&xds.node.id=node_name",
+                     "bar?" +
+                         TestUtility::contextParamsString(DEFAULT_XDSTP_CONTEXT_PARAMS),
                      route_name_1)},
       {}, "3");
   EXPECT_TRUE(compareDiscoveryRequest(Config::TypeUrl::get().Listener, "3", {}, {}, {}));
@@ -1656,12 +1678,15 @@ TEST_P(XdsTpAdsIntegrationTest, Basic) {
   sendDiscoveryResponse<envoy::config::listener::v3::Listener>(
       Config::TypeUrl::get().Listener, {}, {},
       {"xdstp://test/envoy.config.listener.v3.Listener/foo-listener/"
-       "bar?xds.node.cluster=cluster_name&xds.node.id=node_name"},
+       "bar?" +
+       TestUtility::contextParamsString(DEFAULT_XDSTP_CONTEXT_PARAMS)},
       "3");
   EXPECT_TRUE(compareDiscoveryRequest(Config::TypeUrl::get().Listener, "4", {}, {}, {}));
   test_server_->waitForCounterEq("listener_manager.listener_removed", 1);
   makeSingleRequest();
 }
+
+// TODO(adisuissa): Add a test where server returns incorrect minor version.
 
 // Some v2 ADS integration tests, these validate basic v2 support but are not complete, they reflect
 // tests that have historically been worth validating on both v2 and v3. They will be removed in Q1.

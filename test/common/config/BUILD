@@ -446,6 +446,7 @@ envoy_cc_test(
     deps = [
         ":xds_test_utility_lib",
         "//source/common/config:context_provider_lib",
+        "//source/common/version:api_version_lib",
         "//test/test_common:utility_lib",
     ],
 )

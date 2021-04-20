@@ -12,6 +12,7 @@
 #include "common/network/socket_option_impl.h"
 #include "common/protobuf/protobuf.h"
 #include "common/thread_local/thread_local_impl.h"
+#include "common/version/api_version.h"
 #include "common/version/version.h"
 
 #include "server/process_context_impl.h"
@@ -798,6 +799,13 @@ TEST_P(ServerInstanceImplTest, BootstrapNode) {
   EXPECT_EQ("envoy", server_->localInfo().node().user_agent_name());
   EXPECT_TRUE(server_->localInfo().node().has_user_agent_build_version());
   expectCorrectBuildVersion(server_->localInfo().node().user_agent_build_version());
+  // Verify that the node's latest and oldest API version equal to Envoy's.
+  EXPECT_TRUE(server_->localInfo().node().has_user_agent_latest_api_version());
+  EXPECT_THAT(ApiVersionInfo::convertToSemanticVersion(ApiVersionInfo::apiVersion()),
+              ProtoEq(server_->localInfo().node().user_agent_latest_api_version()));
+  EXPECT_TRUE(server_->localInfo().node().has_user_agent_oldest_api_version());
+  EXPECT_THAT(ApiVersionInfo::convertToSemanticVersion(ApiVersionInfo::oldestApiVersion()),
+              ProtoEq(server_->localInfo().node().user_agent_oldest_api_version()));
 }
 
 // Validate server localInfo().zoneStatName() is set from bootstrap config

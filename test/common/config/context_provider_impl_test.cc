@@ -1,4 +1,5 @@
 #include "common/config/context_provider_impl.h"
+#include "common/version/api_version.h"
 
 #include "test/common/config/xds_test_utility.h"
 #include "test/test_common/utility.h"
@@ -32,9 +33,11 @@ TEST(ContextProviderTest, NodeContext) {
   Protobuf::RepeatedPtrField<std::string> node_context_params{params_vec.cbegin(),
                                                               params_vec.cend()};
   ContextProviderImpl context_provider(node, node_context_params);
-  EXPECT_CONTEXT_PARAMS(context_provider.nodeContext(), Pair("xds.node.cluster", "some_cluster"),
-                        Pair("xds.node.id", "some_id"),
-                        Pair("xds.node.user_agent_name", "xds_client"));
+  EXPECT_CONTEXT_PARAMS(
+      context_provider.nodeContext(), Pair("xds.node.cluster", "some_cluster"),
+      Pair("xds.node.id", "some_id"), Pair("xds.node.user_agent_name", "xds_client"),
+      Pair("xds.api.minor_version", absl::StrCat("[", ApiVersionInfo::oldestApiVersion().minor, ",",
+                                                 ApiVersionInfo::apiVersion().minor, "]")));
 }
 
 TEST(ContextProviderTest, DynamicContextParameters) {

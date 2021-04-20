@@ -23,6 +23,7 @@
 #include "common/config/opaque_resource_decoder_impl.h"
 #include "common/config/version_converter.h"
 #include "common/http/header_map_impl.h"
+#include "common/http/utility.h"
 #include "common/protobuf/message_validator_impl.h"
 #include "common/protobuf/utility.h"
 #include "common/stats/symbol_table_impl.h"
@@ -799,6 +800,27 @@ public:
                         getVersionedServiceFullName(service_full_name_template, api_version,
                                                     use_alpha, service_namespace),
                         "/", method_name);
+  }
+
+  /**
+   * Creates URL parameters formatted string from the given parameters dictionary.
+   *
+   * @param params the dictionary of parameters.
+   * @return std::string the URL parameters formatted string.
+   */
+  static std::string
+  contextParamsString(const absl::flat_hash_map<std::string, std::string>& params) {
+    // Add the parameters to a vector of encoded key=value entries, sort it, and join the vector
+    // entries with &.
+    std::vector<std::string> result_vec;
+    result_vec.reserve(params.size());
+    for (const auto& [key, value] : params) {
+      result_vec.emplace_back(
+          absl::StrCat(Http::Utility::PercentEncoding::encode(key, "%#[]&="), "=",
+                       Http::Utility::PercentEncoding::encode(value, "%#[]&=")));
+    }
+    std::sort(result_vec.begin(), result_vec.end());
+    return absl::StrJoin(result_vec, "&");
   }
 };
 

@@ -47,6 +47,7 @@
 #include "common/stats/thread_local_store.h"
 #include "common/stats/timespan_impl.h"
 #include "common/upstream/cluster_manager_impl.h"
+#include "common/version/api_version.h"
 #include "common/version/version.h"
 
 #include "server/admin/utils.h"
@@ -406,6 +407,10 @@ void InstanceImpl::initialize(const Options& options,
   bootstrap_.mutable_node()->set_hidden_envoy_deprecated_build_version(VersionInfo::version());
   bootstrap_.mutable_node()->set_user_agent_name("envoy");
   *bootstrap_.mutable_node()->mutable_user_agent_build_version() = VersionInfo::buildVersion();
+  *bootstrap_.mutable_node()->mutable_user_agent_latest_api_version() =
+      ApiVersionInfo::convertToSemanticVersion(ApiVersionInfo::apiVersion());
+  *bootstrap_.mutable_node()->mutable_user_agent_oldest_api_version() =
+      ApiVersionInfo::convertToSemanticVersion(ApiVersionInfo::oldestApiVersion());
   for (const auto& ext : Envoy::Registry::FactoryCategoryRegistry::registeredFactories()) {
     for (const auto& name : ext.second->allRegisteredNames()) {
       auto* extension = bootstrap_.mutable_node()->add_extensions();

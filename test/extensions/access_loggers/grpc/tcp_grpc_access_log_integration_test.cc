@@ -102,6 +102,8 @@ public:
       auto* node = request_msg.mutable_identifier()->mutable_node();
       node->clear_extensions();
       node->clear_user_agent_build_version();
+      node->clear_user_agent_latest_api_version();
+      node->clear_user_agent_oldest_api_version();
     }
     Config::VersionUtil::scrubHiddenEnvoyDeprecated(request_msg);
     Config::VersionUtil::scrubHiddenEnvoyDeprecated(expected_request_msg);

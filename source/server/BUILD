@@ -528,6 +528,7 @@ envoy_cc_library(
         "//source/common/stats:thread_local_store_lib",
         "//source/common/upstream:cluster_manager_lib",
         "//source/common/upstream:health_discovery_service_lib",
+        "//source/common/version:api_version_lib",
         "//source/common/version:version_lib",
         "//source/server:overload_manager_lib",
         "//source/server/admin:admin_lib",

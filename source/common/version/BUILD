@@ -79,8 +79,12 @@ envoy_cc_library(
 
 envoy_cc_library(
     name = "api_version_lib",
+    srcs = ["api_version.cc"],
     hdrs = ["api_version.h"],
-    deps = [":api_version_includes"],
+    deps = [
+        ":api_version_includes",
+        "@envoy_api//envoy/type/v3:pkg_cc_proto",
+    ],
 )
 
 envoy_basic_cc_library(
