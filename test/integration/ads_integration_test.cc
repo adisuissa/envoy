@@ -1703,6 +1703,76 @@ TEST_P(AdsIntegrationTest, ContextParameterUpdate) {
       0, last_node_.dynamic_parameters().at(Config::TypeUrl::get().Cluster).params().count("foo"));
 }
 
+// Test receiving multiple EDS updates using SotW.
+TEST_P(AdsIntegrationTest, AdiTestMultipleEdsUpdatesInSotw) {
+  initialize();
+  const auto cds_type_url = Config::getTypeUrl<envoy::config::cluster::v3::Cluster>();
+  const auto eds_type_url =
+      Config::getTypeUrl<envoy::config::endpoint::v3::ClusterLoadAssignment>();
+
+  EXPECT_TRUE(compareDiscoveryRequest(cds_type_url, "", {}, {}, {}, true));
+  sendDiscoveryResponse<envoy::config::cluster::v3::Cluster>(
+      cds_type_url, {buildCluster("cluster_0"), buildCluster("cluster_1")},
+      {buildCluster("cluster_0"), buildCluster("cluster_1")}, {}, "1");
+  test_server_->waitForGaugeEq("cluster_manager.warming_clusters", 2);
+  EXPECT_TRUE(compareDiscoveryRequest(eds_type_url, "", {"cluster_0", "cluster_1"},
+                                      {"cluster_0", "cluster_1"}, {}));
+  ENVOY_LOG_MISC(trace, "ADI: sending first EDS response with 2 CLAs");
+  auto cla_0 = buildClusterLoadAssignment("cluster_0");
+  auto cla_1 = buildClusterLoadAssignment("cluster_1");
+  sendDiscoveryResponse<envoy::config::endpoint::v3::ClusterLoadAssignment>(
+      eds_type_url, {cla_0, cla_1}, {cla_0, cla_1}, {}, "1");
+
+  // Expect ACK for CDS, query for LDS, and ack for EDS.
+  EXPECT_TRUE(compareDiscoveryRequest(cds_type_url, "1", {}, {}, {}));
+  EXPECT_TRUE(compareDiscoveryRequest(Config::TypeUrl::get().Listener, "", {}, {}, {}));
+  EXPECT_TRUE(compareDiscoveryRequest(eds_type_url, "1", {"cluster_0", "cluster_1"}, {}, {}));
+
+  // 4 Active clusters (dumm_cluster + ads_cluster + 2 normal clusters)
+  test_server_->waitForGaugeEq("cluster_manager.warming_clusters", 0);
+  test_server_->waitForGaugeGe("cluster_manager.active_clusters", 4);
+
+  // Update first cluster load assignment (add an endpoint), and send it.
+  ENVOY_LOG_MISC(trace, "ADI: sending second EDS response with cla_0 update");
+  auto* cla0_new_endpoint = cla_0.mutable_endpoints(0)->add_lb_endpoints();
+  cla0_new_endpoint->MergeFrom(cla_0.endpoints(0).lb_endpoints(0));
+  cla0_new_endpoint->mutable_endpoint()
+      ->mutable_address()
+      ->mutable_socket_address()
+      ->set_port_value(fake_upstreams_[1]->localAddress()->ip()->port());
+  sendDiscoveryResponse<envoy::config::endpoint::v3::ClusterLoadAssignment>(eds_type_url, {cla_0},
+                                                                            {cla_0}, {}, "2");
+
+  // Expect EDS ACK.
+  EXPECT_TRUE(compareDiscoveryRequest(eds_type_url, "2", {"cluster_0"}, {}, {}));
+
+  test_server_->waitForGaugeGe("cluster.cluster_0.membership_total", 2);
+  EXPECT_EQ(2, test_server_->gauge("cluster.cluster_0.membership_total")->value());
+  EXPECT_EQ(2, test_server_->gauge("cluster.cluster_0.membership_healthy")->value());
+  EXPECT_EQ(1, test_server_->gauge("cluster.cluster_1.membership_total")->value());
+  EXPECT_EQ(1, test_server_->gauge("cluster.cluster_1.membership_healthy")->value());
+
+  // Update second cluster load assignment (add an endpoint), and send it.
+  ENVOY_LOG_MISC(trace, "ADI: sending third EDS response with cla_1 update");
+  auto* cla1_new_endpoint = cla_1.mutable_endpoints(0)->add_lb_endpoints();
+  cla1_new_endpoint->MergeFrom(cla_1.endpoints(0).lb_endpoints(0));
+  cla1_new_endpoint->mutable_endpoint()
+      ->mutable_address()
+      ->mutable_socket_address()
+      ->set_port_value(fake_upstreams_[1]->localAddress()->ip()->port());
+  sendDiscoveryResponse<envoy::config::endpoint::v3::ClusterLoadAssignment>(eds_type_url, {cla_1},
+                                                                            {cla_1}, {}, "3");
+
+  // Expect EDS ACK.
+  EXPECT_TRUE(compareDiscoveryRequest(eds_type_url, "3", {"cluster_1"}, {}, {}));
+
+  test_server_->waitForGaugeGe("cluster.cluster_1.membership_total", 2);
+  EXPECT_EQ(2, test_server_->gauge("cluster.cluster_0.membership_total")->value());
+  EXPECT_EQ(2, test_server_->gauge("cluster.cluster_0.membership_healthy")->value());
+  EXPECT_EQ(2, test_server_->gauge("cluster.cluster_1.membership_total")->value());
+  EXPECT_EQ(2, test_server_->gauge("cluster.cluster_1.membership_healthy")->value());
+}
+
 class XdsTpAdsIntegrationTest : public AdsIntegrationTest {
 public:
   void initialize() override {

@@ -87,6 +87,14 @@ public:
   envoy::admin::v3::ClustersConfigDump getClustersConfigDump();
   envoy::admin::v3::ListenersConfigDump getListenersConfigDump();
   envoy::admin::v3::RoutesConfigDump getRoutesConfigDump();
+
+  // Printing all gauges and their values
+  void printAllGauges() {
+    std::cerr << "Counters:" << std::endl;
+    for (const auto& c : test_server_->gauges()) {
+      std::cerr << "\t" << c->name() << ": " << c->value() << std::endl;
+    }
+  }
 };
 
 // When old delta subscription state goes away, we could replace this macro back with
