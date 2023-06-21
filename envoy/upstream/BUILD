@@ -21,6 +21,7 @@ envoy_cc_library(
         ":upstream_interface",
         "//envoy/access_log:access_log_interface",
         "//envoy/common:random_generator_interface",
+        "//envoy/config:eds_resources_cache_interface",
         "//envoy/config:grpc_mux_interface",
         "//envoy/config:subscription_factory_interface",
         "//envoy/grpc:async_client_manager_interface",

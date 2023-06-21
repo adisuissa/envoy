@@ -11,11 +11,13 @@
 
 #include "envoy/api/api.h"
 #include "envoy/common/callback.h"
+#include "envoy/common/optref.h"
 #include "envoy/common/random_generator.h"
 #include "envoy/config/bootstrap/v3/bootstrap.pb.h"
 #include "envoy/config/cluster/v3/cluster.pb.h"
 #include "envoy/config/core/v3/address.pb.h"
 #include "envoy/config/core/v3/config_source.pb.h"
+#include "envoy/config/eds_resources_cache.h"
 #include "envoy/config/xds_resources_delegate.h"
 #include "envoy/http/codes.h"
 #include "envoy/local_info/local_info.h"
@@ -361,6 +363,8 @@ public:
       const envoy::config::cluster::v3::Cluster::CommonLbConfig& common_lb_config) override {
     return common_lb_config_pool_->getObject(common_lb_config);
   }
+
+  Config::EdsResourcesCacheOptRef edsResourcesCache() override;
 
 protected:
   virtual void postThreadLocalRemoveHosts(const Cluster& cluster, const HostVector& hosts_removed);

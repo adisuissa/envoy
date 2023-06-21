@@ -70,7 +70,7 @@ public:
               "envoy.service.discovery.v2.AggregatedDiscoveryService.StreamAggregatedResources"),
           *stats_.rootScope(), rate_limit_settings_, local_info_, false,
           std::move(config_validators_), std::move(backoff_strategy),
-          /*xds_config_tracker=*/XdsConfigTrackerOptRef());
+          /*xds_config_tracker=*/XdsConfigTrackerOptRef(), /*eds_resources_cache=*/nullptr);
       return;
     }
     grpc_mux_ = std::make_unique<NewGrpcMuxImpl>(
@@ -79,7 +79,7 @@ public:
             "envoy.service.discovery.v3.AggregatedDiscoveryService.StreamAggregatedResources"),
         *stats_.rootScope(), rate_limit_settings_, local_info_, std::move(config_validators_),
         std::move(backoff_strategy),
-        /*xds_config_tracker=*/XdsConfigTrackerOptRef());
+        /*xds_config_tracker=*/XdsConfigTrackerOptRef(), /*eds_resources_cache=*/nullptr);
   }
 
   void expectSendMessage(const std::string& type_url,

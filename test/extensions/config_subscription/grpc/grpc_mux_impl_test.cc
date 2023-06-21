@@ -69,7 +69,8 @@ public:
             SubscriptionFactory::RetryInitialDelayMs, SubscriptionFactory::RetryMaxDelayMs,
             random_),
         /*xds_config_tracker=*/XdsConfigTrackerOptRef(),
-        /*xds_resources_delegate=*/XdsResourcesDelegateOptRef(), /*target_xds_authority=*/"");
+        /*xds_resources_delegate=*/XdsResourcesDelegateOptRef(),
+        /*eds_resources_cache=*/nullptr, /*target_xds_authority=*/"");
   }
 
   void setup(const RateLimitSettings& custom_rate_limit_settings) {
@@ -82,7 +83,8 @@ public:
             SubscriptionFactory::RetryInitialDelayMs, SubscriptionFactory::RetryMaxDelayMs,
             random_),
         /*xds_config_tracker=*/XdsConfigTrackerOptRef(),
-        /*xds_resources_delegate=*/XdsResourcesDelegateOptRef(), /*target_xds_authority=*/"");
+        /*xds_resources_delegate=*/XdsResourcesDelegateOptRef(),
+        /*eds_resources_cache=*/nullptr, /*target_xds_authority=*/"");
   }
 
   void expectSendMessage(const std::string& type_url,
@@ -962,7 +964,7 @@ TEST_F(GrpcMuxImplTest, BadLocalInfoEmptyClusterName) {
               random_),
           /*xds_config_tracker=*/XdsConfigTrackerOptRef(),
           /*xds_resources_delegate=*/XdsResourcesDelegateOptRef(),
-          /*target_xds_authority=*/""),
+          /*eds_resources_cache=*/nullptr, /*target_xds_authority=*/""),
       EnvoyException,
       "ads: node 'id' and 'cluster' are required. Set it either in 'node' config or via "
       "--service-node and --service-cluster options.");
@@ -981,7 +983,8 @@ TEST_F(GrpcMuxImplTest, BadLocalInfoEmptyNodeName) {
               SubscriptionFactory::RetryInitialDelayMs, SubscriptionFactory::RetryMaxDelayMs,
               random_),
           /*xds_config_tracker=*/XdsConfigTrackerOptRef(),
-          /*xds_resources_delegate=*/XdsResourcesDelegateOptRef(), /*target_xds_authority=*/""),
+          /*xds_resources_delegate=*/XdsResourcesDelegateOptRef(),
+          /*eds_resources_cache=*/nullptr, /*target_xds_authority=*/""),
       EnvoyException,
       "ads: node 'id' and 'cluster' are required. Set it either in 'node' config or via "
       "--service-node and --service-cluster options.");

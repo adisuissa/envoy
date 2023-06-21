@@ -6,6 +6,7 @@
 #include "source/common/config/utility.h"
 #include "source/common/memory/utils.h"
 #include "source/common/protobuf/protobuf.h"
+#include "source/extensions/config_subscription/grpc/eds_resources_cache_impl.h"
 #include "source/extensions/config_subscription/grpc/xds_source_id.h"
 
 #include "absl/container/btree_map.h"
@@ -64,12 +65,15 @@ GrpcMuxImpl::GrpcMuxImpl(const LocalInfo::LocalInfo& local_info,
                          BackOffStrategyPtr backoff_strategy,
                          XdsConfigTrackerOptRef xds_config_tracker,
                          XdsResourcesDelegateOptRef xds_resources_delegate,
+                         EdsResourcesCachePtr eds_resources_cache,
                          const std::string& target_xds_authority)
     : grpc_stream_(this, std::move(async_client), service_method, dispatcher, scope,
                    std::move(backoff_strategy), rate_limit_settings),
       local_info_(local_info), skip_subsequent_node_(skip_subsequent_node),
       config_validators_(std::move(config_validators)), xds_config_tracker_(xds_config_tracker),
-      xds_resources_delegate_(xds_resources_delegate), target_xds_authority_(target_xds_authority),
+      xds_resources_delegate_(xds_resources_delegate),
+      eds_resources_cache_(std::move(eds_resources_cache)),
+      target_xds_authority_(target_xds_authority),
       first_stream_request_(true), dispatcher_(dispatcher),
       dynamic_update_callback_handle_(local_info.contextProvider().addDynamicContextUpdateCallback(
           [this](absl::string_view resource_type_url) {
@@ -187,8 +191,15 @@ GrpcMuxWatchPtr GrpcMuxImpl::addWatch(const std::string& type_url,
                                       SubscriptionCallbacks& callbacks,
                                       OpaqueResourceDecoderSharedPtr resource_decoder,
                                       const SubscriptionOptions& options) {
+  // Resource cache is only used for EDS resources.
+  EdsResourcesCacheOptRef resources_cache{absl::nullopt};
+  if (eds_resources_cache_ &&
+      (type_url == Config::getTypeUrl<envoy::config::endpoint::v3::ClusterLoadAssignment>())) {
+    ENVOY_LOG_MISC(trace, "ADIP: GrpcMuxImpl::addWatch needs cache for {}", type_url);
+    resources_cache = makeOptRefFromPtr(eds_resources_cache_.get());
+  }
   auto watch = std::make_unique<GrpcMuxWatchImpl>(resources, callbacks, resource_decoder, type_url,
-                                                  *this, options, local_info_);
+                                                  *this, options, local_info_, resources_cache);
   ENVOY_LOG(debug, "gRPC mux addWatch for " + type_url);
 
   // Lazily kick off the requests based on first subscription. This has the
@@ -412,6 +423,19 @@ void GrpcMuxImpl::processDiscoveryResources(const std::vector<DecodedResourcePtr
     // updates in the message for EDS/RDS.
     if (!found_resources.empty()) {
       watch->callbacks_.onConfigUpdate(found_resources, version_info);
+      // Resource cache is only used for EDS resources.
+      if (eds_resources_cache_ &&
+          (type_url == Config::getTypeUrl<envoy::config::endpoint::v3::ClusterLoadAssignment>())) {
+        for (const auto& resource : found_resources) {
+          const envoy::config::endpoint::v3::ClusterLoadAssignment& cluster_load_assignment =
+            dynamic_cast<const envoy::config::endpoint::v3::ClusterLoadAssignment&>(
+                resource.get().resource());
+          eds_resources_cache_->setResource(resource.get().name(), cluster_load_assignment);
+        }
+        // No need to remove resources from the cache, as currently only non-collection
+        // subscriptions are supported, and these resources are removed in the call
+        // to updateWatchInterest().
+      }
     }
   }
 
@@ -532,7 +556,12 @@ public:
          const envoy::config::core::v3::ApiConfigSource& ads_config,
          const LocalInfo::LocalInfo& local_info, CustomConfigValidatorsPtr&& config_validators,
          BackOffStrategyPtr&& backoff_strategy, XdsConfigTrackerOptRef xds_config_tracker,
-         XdsResourcesDelegateOptRef xds_resources_delegate) override {
+         XdsResourcesDelegateOptRef xds_resources_delegate,
+         bool use_eds_resources_cache) override {
+    EdsResourcesCachePtr eds_resources_cache = nullptr;
+    if (use_eds_resources_cache) {
+      eds_resources_cache = std::make_unique<EdsResourcesCacheImpl>(dispatcher);
+    }
     return std::make_shared<Config::GrpcMuxImpl>(
         local_info, std::move(async_client), dispatcher,
         *Protobuf::DescriptorPool::generated_pool()->FindMethodByName(
@@ -540,6 +569,7 @@ public:
         scope, Utility::parseRateLimitSettings(ads_config),
         ads_config.set_node_on_first_message_only(), std::move(config_validators),
         std::move(backoff_strategy), xds_config_tracker, xds_resources_delegate,
+        std::move(eds_resources_cache),
         Config::Utility::getGrpcControlPlane(ads_config).value_or(""));
   }
 };
