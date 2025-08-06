@@ -528,10 +528,32 @@ public:
     auto ads_config_source = OdCdsIntegrationHelper::createAdsOdCdsConfigSource();
     auto per_route_config =
         OdCdsIntegrationHelper::createPerRouteConfig(std::move(ads_config_source), 2500);
-    OdCdsIntegrationHelper::addPerRouteConfig(builder.hcm(), std::move(per_route_config),
-                                              "integration", {});
+    OdCdsIntegrationHelper::addPerRouteConfig(builder.hcm(), std::move(per_route_config), "integration", {});
     return builder.listener();
   }
+
+  envoy::config::listener::v3::Listener buildListenerWithMultiRoute() {
+    OdCdsListenerBuilder builder(Network::Test::getLoopbackAddressString(ipVersion()));
+    auto ads_config_source = OdCdsIntegrationHelper::createAdsOdCdsConfigSource();
+    //OdCdsIntegrationHelper::addPerRouteConfig(builder.hcm(), std::move(per_route_config), "integration", {});
+    auto& hcm = builder.hcm();
+    // Set the ODCDS filter on the HCM to use ADS.
+    auto odcds_config =
+        OdCdsIntegrationHelper::createOnDemandConfig(std::move(ads_config_source), 2500);
+    hcm.mutable_http_filters(0)->mutable_typed_config()->PackFrom(std::move(odcds_config));
+    // The clusters are on-demand - no need to validate them.
+    hcm.mutable_route_config()->mutable_validate_clusters()->set_value(false);
+    // Update the route to match "/" to cluster: "new_cluster1".
+    hcm.mutable_route_config()->mutable_virtual_hosts(0)->mutable_routes(0)->mutable_route()->clear_cluster_header();
+    hcm.mutable_route_config()->mutable_virtual_hosts(0)->mutable_routes(0)->mutable_route()->set_cluster("new_cluster1");
+    // Duplicate the route for the virtual-host.
+    hcm.mutable_route_config()->mutable_virtual_hosts(0)->mutable_routes()->Add()->CopyFrom(hcm.route_config().virtual_hosts(0).routes(0));
+    // Change the first route to match "/match" to a cluster: "new_cluster2".
+    hcm.mutable_route_config()->mutable_virtual_hosts(0)->mutable_routes(0)->mutable_route()->set_cluster("new_cluster2");
+    hcm.mutable_route_config()->mutable_virtual_hosts(0)->mutable_routes(0)->mutable_match()->set_prefix("/match");
+    return builder.listener();
+  }
+
 
   bool compareRequest(const std::string& type_url,
                       const std::vector<std::string>& expected_resource_subscriptions,
@@ -569,10 +591,193 @@ public:
 
 INSTANTIATE_TEST_SUITE_P(
     IpVersionsClientTypeDeltaWildcard, OdCdsAdsIntegrationTest,
+    //DELTA_SOTW_GRPC_CLIENT_INTEGRATION_PARAMS
     testing::Combine(testing::ValuesIn(TestEnvironment::getIpVersionsForTest()),
                      testing::ValuesIn(TestEnvironment::getsGrpcVersionsForTest()),
                      // Only delta xDS is supported for on-demand CDS.
                      testing::Values(Grpc::SotwOrDelta::Delta, Grpc::SotwOrDelta::UnifiedDelta)));
+
+// tests a scenario where:
+//  - 2 listeners each with its HCM configured with OdCds.
+//  - making 2 concurrent downstream requests one to listener1, and a short while after a second to listener2.
+//  - Observing that a single CDS request is sent to the ADS server.
+//  - sending a single CDS response back to the Envoy containing the cluster.
+//  - both requests are resumed.
+TEST_P(OdCdsAdsIntegrationTest, OnDemandClusterDiscoveryMultipleListenersSameClusters) {
+  initialize();
+  // initial cluster query
+  ENVOY_LOG_MISC(trace, "ADIP: TEST - waiting initial CDS request (wildcard over ADS)");
+  EXPECT_TRUE(compareRequest(Config::TestTypeUrl::get().Cluster, {}, {}, true));
+  sendDeltaDiscoveryResponse<envoy::config::cluster::v3::Cluster>(
+      Config::TestTypeUrl::get().Cluster, {}, {}, "1");
+
+  // initial listener query
+  ENVOY_LOG_MISC(trace, "ADIP: TEST - waiting initial LDS request (wildcard over ADS)");
+  EXPECT_TRUE(compareRequest(Config::TestTypeUrl::get().Listener, {}, {}));
+  auto odcds_listener = buildListener();
+  odcds_listener.set_name("listener_0");
+  auto odcds_listener2 = buildListener();
+  odcds_listener2.set_name("listener_1");
+  ENVOY_LOG_MISC(trace, "ADIP: TEST - sending 2 listeners");
+  sendDeltaDiscoveryResponse<envoy::config::listener::v3::Listener>(
+      Config::TestTypeUrl::get().Listener, {odcds_listener, odcds_listener2}, {}, "2");
+
+  // acks
+  EXPECT_TRUE(compareRequest(Config::TestTypeUrl::get().Cluster, {}, {}));
+  EXPECT_TRUE(compareRequest(Config::TestTypeUrl::get().Listener, {}, {}));
+
+  // listener got acked, so register the http port now.
+  ENVOY_LOG_MISC(trace, "ADIP: TEST - waiting for Envoy (and its listeners) to be ready");
+  test_server_->waitUntilListenersReady();
+  registerTestServerPorts({"http", "http_1"});
+
+  ENVOY_LOG_MISC(trace, "ADIP: TEST - Sending a downstream request1 for new_cluster");
+  codec_client_ = makeHttpConnection(makeClientConnection(lookupPort("http")));
+  Http::TestRequestHeaderMapImpl request_headers{{":method", "GET"},
+                                                 {":path", "/"},
+                                                 {":scheme", "http"},
+                                                 {":authority", "vhost.first"},
+                                                 {"Pick-This-Cluster", "new_cluster"}};
+  IntegrationStreamDecoderPtr response = codec_client_->makeHeaderOnlyRequest(request_headers);
+
+  ENVOY_LOG_MISC(trace, "ADIP: TEST - Waiting for a CDS request for new_cluster");
+  EXPECT_TRUE(compareRequest(Config::TestTypeUrl::get().Cluster, {"new_cluster"}, {}));
+
+  ENVOY_LOG_MISC(trace, "ADIP: TEST - Sending a downstream request2 for new_cluster");
+  IntegrationCodecClientPtr codec_client2 = makeHttpConnection(makeClientConnection(lookupPort("http_1")));
+  Http::TestRequestHeaderMapImpl request_headers2{{":method", "GET"},
+                                                   {":path", "/"},
+                                                   {":scheme", "http"},
+                                                   {":authority", "vhost.first"},
+                                                   {"Pick-This-Cluster", "new_cluster"}};
+  IntegrationStreamDecoderPtr response2 = codec_client2->makeHeaderOnlyRequest(request_headers2);
+
+  
+  ENVOY_LOG_MISC(trace, "ADIP: TEST - Sending a CDS response for new_cluster");
+  sendDeltaDiscoveryResponse<envoy::config::cluster::v3::Cluster>(
+      Config::TestTypeUrl::get().Cluster, {new_cluster_}, {}, "3");
+  EXPECT_TRUE(compareRequest(Config::TestTypeUrl::get().Cluster, {}, {}));
+
+  ENVOY_LOG_MISC(trace, "ADIP: TEST - Waiting1 for the downstream request (1 or 2) to reach the upstream");
+  waitForNextUpstreamRequest(new_cluster_upstream_idx_);
+  // Send response headers, and end_stream if there is no response body.
+  upstream_request_->encodeHeaders(default_response_headers_, true);
+
+  ASSERT_TRUE(response->waitForEndStream());
+  verifyResponse(std::move(response), "200", {}, {});
+
+  ENVOY_LOG_MISC(trace, "ADIP: TEST - Waiting2 for the downstream request (1 or 2) to reach the upstream");
+  waitForNextUpstreamRequest(new_cluster_upstream_idx_);
+  // Send response headers, and end_stream if there is no response body.
+  upstream_request_->encodeHeaders(default_response_headers_, true);
+
+  ASSERT_TRUE(response2->waitForEndStream());
+  verifyResponse(std::move(response2), "200", {}, {});
+
+  ENVOY_LOG_MISC(trace, "ADIP: TEST - cleaning up test");
+  cleanupUpstreamAndDownstream();
+  if (codec_client2) {
+    codec_client2->close();
+  }
+}
+
+// tests a scenario where:
+//  - a single listener with its HCM configured with 2 routes for ODCDS
+//  - making a downstream request to route1
+//  - Observing that a CDS request to new_cluster1 is sent to the ADS server.
+//  - Sending the CDS response for new_cluster1
+//  - making a downstream request to route2
+//  - Observing that a CDS request to new_cluster2 is sent to the ADS server (without removing new_cluster1).
+//  - Sending the CDS response for new_cluster2
+//  - both requests are resumed.
+TEST_P(OdCdsAdsIntegrationTest, OnDemandClusterDiscoveryMultipleClustersSequentially) {
+  initialize();
+  // Create 2 clusters (that have to the same endpoint).
+  envoy::config::cluster::v3::Cluster new_cluster1 = ConfigHelper::buildStaticCluster(
+      "new_cluster1", fake_upstreams_[new_cluster_upstream_idx_]->localAddress()->ip()->port(),
+      Network::Test::getLoopbackAddressString(ipVersion()));
+  envoy::config::cluster::v3::Cluster new_cluster2 = ConfigHelper::buildStaticCluster(
+      "new_cluster2", fake_upstreams_[new_cluster_upstream_idx_]->localAddress()->ip()->port(),
+      Network::Test::getLoopbackAddressString(ipVersion()));
+
+  // initial cluster query
+  ENVOY_LOG_MISC(trace, "ADIP: TEST - waiting initial CDS request (wildcard over ADS)");
+  EXPECT_TRUE(compareRequest(Config::TestTypeUrl::get().Cluster, {}, {}, true));
+  sendDeltaDiscoveryResponse<envoy::config::cluster::v3::Cluster>(
+      Config::TestTypeUrl::get().Cluster, {}, {}, "1");
+
+  // initial listener query
+  ENVOY_LOG_MISC(trace, "ADIP: TEST - waiting initial LDS request (wildcard over ADS)");
+  EXPECT_TRUE(compareRequest(Config::TestTypeUrl::get().Listener, {}, {}));
+  auto odcds_listener = buildListenerWithMultiRoute();
+  ENVOY_LOG_MISC(trace, "ADIP: TEST - sending the listener");
+  sendDeltaDiscoveryResponse<envoy::config::listener::v3::Listener>(
+      Config::TestTypeUrl::get().Listener, {odcds_listener}, {}, "2");
+
+  // acks
+  EXPECT_TRUE(compareRequest(Config::TestTypeUrl::get().Cluster, {}, {}));
+  EXPECT_TRUE(compareRequest(Config::TestTypeUrl::get().Listener, {}, {}));
+
+  // listener got acked, so register the http port now.
+  ENVOY_LOG_MISC(trace, "ADIP: TEST - waiting for Envoy (and its listeners) to be ready");
+  test_server_->waitUntilListenersReady();
+  registerTestServerPorts({"http"});
+
+  ENVOY_LOG_MISC(trace, "ADIP: TEST - Sending a downstream request1 for new_cluster1");
+  codec_client_ = makeHttpConnection(makeClientConnection(lookupPort("http")));
+  Http::TestRequestHeaderMapImpl request_headers{{":method", "GET"},
+                                                 {":path", "/"},
+                                                 {":scheme", "http"},
+                                                 {":authority", "vhost.first"}};
+  IntegrationStreamDecoderPtr response = codec_client_->makeHeaderOnlyRequest(request_headers);
+
+  ENVOY_LOG_MISC(trace, "ADIP: TEST - Waiting for a CDS request for new_cluster1");
+  EXPECT_TRUE(compareRequest(Config::TestTypeUrl::get().Cluster, {"new_cluster1"}, {}));
+  ENVOY_LOG_MISC(trace, "ADIP: TEST - Sending a CDS response for new_cluster1");
+  sendDeltaDiscoveryResponse<envoy::config::cluster::v3::Cluster>(
+      Config::TestTypeUrl::get().Cluster, {new_cluster1}, {}, "3");
+  EXPECT_TRUE(compareRequest(Config::TestTypeUrl::get().Cluster, {}, {}));
+
+  ENVOY_LOG_MISC(trace, "ADIP: TEST - Waiting1 for the downstream request (1 or 2) to reach the upstream");
+  waitForNextUpstreamRequest(new_cluster_upstream_idx_);
+  // Send response headers, and end_stream if there is no response body.
+  upstream_request_->encodeHeaders(default_response_headers_, true);
+
+  ASSERT_TRUE(response->waitForEndStream());
+  verifyResponse(std::move(response), "200", {}, {});
+
+  cleanupUpstreamAndDownstream();
+
+  ENVOY_LOG_MISC(trace, "ADIP: TEST - Sending a downstream request2 for new_cluster");
+  IntegrationCodecClientPtr codec_client2 = makeHttpConnection(makeClientConnection(lookupPort("http")));
+  Http::TestRequestHeaderMapImpl request_headers2{{":method", "GET"},
+                                                   {":path", "/match"},
+                                                   {":scheme", "http"},
+                                                   {":authority", "vhost.first"}};
+  IntegrationStreamDecoderPtr response2 = codec_client2->makeHeaderOnlyRequest(request_headers2);
+
+  ENVOY_LOG_MISC(trace, "ADIP: TEST - Waiting for a CDS request for new_cluster2");
+  EXPECT_TRUE(compareRequest(Config::TestTypeUrl::get().Cluster, {"new_cluster2"}, {}));
+  ENVOY_LOG_MISC(trace, "ADIP: TEST - Sending a CDS response for new_cluster2");
+  sendDeltaDiscoveryResponse<envoy::config::cluster::v3::Cluster>(
+      Config::TestTypeUrl::get().Cluster, {new_cluster2}, {}, "3");
+  EXPECT_TRUE(compareRequest(Config::TestTypeUrl::get().Cluster, {}, {}));
+
+  ENVOY_LOG_MISC(trace, "ADIP: TEST - Waiting2 for the downstream request (1 or 2) to reach the upstream");
+  // TODO(adip): create the upstream-request specific objects so the requests won't conflict or cleanup upstream first.
+  waitForNextUpstreamRequest(new_cluster_upstream_idx_);
+  // Send response headers, and end_stream if there is no response body.
+  upstream_request_->encodeHeaders(default_response_headers_, true);
+
+  ASSERT_TRUE(response2->waitForEndStream());
+  verifyResponse(std::move(response2), "200", {}, {});
+
+  ENVOY_LOG_MISC(trace, "ADIP: TEST - cleaning up test");
+  cleanupUpstreamAndDownstream();
+  if (codec_client2) {
+    codec_client2->close();
+  }
+}
 
 // tests a scenario when:
 //  - making a request to an unknown cluster
